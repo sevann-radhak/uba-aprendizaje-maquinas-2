@@ -24,6 +24,7 @@ services:
       - _AIRFLOW_WWW_USER_CREATE=true
       - _AIRFLOW_WWW_USER_USERNAME=airflow
       - _AIRFLOW_WWW_USER_PASSWORD=airflow
+      - AIRFLOW__WEBSERVER__SECRET_KEY=my_secret_key
     volumes:
       - ./dags:/opt/airflow/dags
     ports:
@@ -42,6 +43,7 @@ services:
       - AIRFLOW__CORE__FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
       - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=True
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__WEBSERVER__SECRET_KEY=my_secret_key
     volumes:
       - ./dags:/opt/airflow/dags
     command: scheduler
