@@ -54,7 +54,7 @@ def evaluate_model():
 def deploy_model():
     print_task_message("Model deployment")
 
-dag = DAG('first_dag', description='First DAG pipeline',
+dag = DAG('second_dag', description='Second DAG pipeline',
           schedule_interval='0 12 * * *',
           start_date=datetime(2022, 1, 1), catchup=False)
 
