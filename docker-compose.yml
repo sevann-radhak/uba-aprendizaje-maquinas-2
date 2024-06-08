@@ -11,6 +11,9 @@ services:
 
   webserver:
     image: apache/airflow:2.8.1
+    build: 
+      context: .
+      dockerfile: ./dockerfiles/Airflow/Dockerfile
     restart: always
     depends_on:
       - postgres
@@ -29,10 +32,18 @@ services:
       - ./dags:/opt/airflow/dags
     ports:
       - "8080:8080"
-    command: bash -c 'airflow db init && airflow users create --username admin --password admin --firstname Anonymous --lastname Admin --role Admin --email admin@example.com && airflow webserver'
+    # command: webserver
+    command: bash -c "airflow db init && airflow webserver"
+    healthcheck:
+      test: ["CMD-SHELL", "[ -f /usr/local/airflow/airflow-webserver.pid ]"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
 
   scheduler:
-    image: apache/airflow:2.8.1
+    build: 
+      context: .
+      dockerfile: ./dockerfiles/Airflow/Dockerfile
     restart: always
     depends_on:
       - webserver
@@ -45,5 +56,12 @@ services:
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
       - AIRFLOW__WEBSERVER__SECRET_KEY=my_secret_key
     volumes:
+      # - ./dags:/usr/local/airflow/dags
       - ./dags:/opt/airflow/dags
-    command: scheduler
+    image: apache/airflow:2.8.1
+    command: bash -c "airflow db init && airflow scheduler"
+    healthcheck:
+      test: ["CMD-SHELL", "[ -f /usr/local/airflow/airflow-scheduler.pid ]"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
