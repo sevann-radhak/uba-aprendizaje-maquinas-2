@@ -3,6 +3,7 @@ from botocore.client import Config
 from botocore.exceptions import BotoCoreError, ClientError
 from boto3.s3.transfer import TransferConfig
 import os
+import io
 
 class MinioClient:
     def __init__(self, endpoint_url, access_key, secret_key):
@@ -26,7 +27,6 @@ class MinioClient:
             return False
         return True
 
-
     def save_file(self, file_name, bucket_name, object_name=None):
         if not self.bucket_exists(bucket_name):
             self.create_bucket(bucket_name)
@@ -39,10 +39,29 @@ class MinioClient:
 
         self.s3.Bucket(bucket_name).upload_file(Filename=file_name, Key=object_name, Config=config)
 
+    # def save_file_content(self, file_content, bucket_name, object_name):
+    #     if not self.bucket_exists(bucket_name):
+    #         self.create_bucket(bucket_name)
+    #     file_obj = io.BytesIO(file_content)
+    #     self.s3.Bucket(bucket_name).put_object(Key=object_name, Body=file_obj)
 
+    
+    def save_file_content(self, file_content, bucket_name, object_name):
+        if not self.bucket_exists(bucket_name):
+            self.create_bucket(bucket_name)
+        file_obj = io.BytesIO(file_content)
+        config = TransferConfig(multipart_threshold=1024**2, max_concurrency=10,
+                                multipart_chunksize=1024**2, use_threads=True)
+        self.s3.Bucket(bucket_name).upload_fileobj(Fileobj=file_obj, Key=object_name, Config=config)
+    
     def get_file(self, bucket_name, object_name):
         print(f"Downloading {object_name} from {bucket_name} bucket...")
         filename = f'downloaded_{object_name}'        
         os.makedirs(os.path.dirname(filename), exist_ok=True)
         self.s3.Bucket(bucket_name).download_file(Key=object_name, Filename=filename)
         print(f"File downloaded to {filename}")
+
+    def get_file_content(self, bucket_name, object_name):
+        obj = self.s3.Object(bucket_name, object_name)
+        file_content = obj.get()['Body'].read()
+        return file_content
