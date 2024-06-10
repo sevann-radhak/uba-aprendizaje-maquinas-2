@@ -26,27 +26,13 @@ class MinioClient:
             return False
         return True
 
-    # def save_file(self, file_name, bucket_name, object_name=None):
-    #     if not self.bucket_exists(bucket_name):
-    #         self.create_bucket(bucket_name)
-    #     if object_name is None:
-    #         object_name = file_name
-    #     self.s3.Bucket(bucket_name).upload_file(Filename=file_name, Key=object_name)
-
 
     def save_file(self, file_name, bucket_name, object_name=None):
         if not self.bucket_exists(bucket_name):
             self.create_bucket(bucket_name)
         if object_name is None:
             object_name = file_name
-            
-        # Imprimir las primeras líneas del archivo
-        with open(file_name, 'r') as file:
-            print("Primeras líneas del archivo:")
-            for _ in range(5):
-                line = file.readline()
-                print(line, end='')
-
+         
         # Configuración para la carga multipartes
         config = TransferConfig(multipart_threshold=1024**2, max_concurrency=10,
                                 multipart_chunksize=1024**2, use_threads=True)
@@ -55,6 +41,8 @@ class MinioClient:
 
 
     def get_file(self, bucket_name, object_name):
-        filename = f'downloaded_{object_name}'
+        print(f"Downloading {object_name} from {bucket_name} bucket...")
+        filename = f'downloaded_{object_name}'        
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
         self.s3.Bucket(bucket_name).download_file(Key=object_name, Filename=filename)
-        return os.path.abspath(filename)
+        print(f"File downloaded to {filename}")
