@@ -7,6 +7,7 @@ import os
 import io
 from MinIOClient import MinioClient
 import mlflow
+from airflow.utils.dates import days_ago
 
 class ModelTraining:
     def __init__(self):
@@ -16,57 +17,64 @@ class ModelTraining:
         self.cleaned_path = os.getenv('CLEANED_PATH')
         self.minio_client = MinioClient(os.getenv('AWS_ENDPOINT_URL'), os.getenv('AWS_ACCESS_KEY_ID'), os.getenv('MINIO_SECRET_KEY'))
         self.experiment = None
-        # mlflow.set_tracking_uri("http://localhost:5000")
         mlflow.set_tracking_uri("http://mlflow:5000")
 
-    def clean_data(self):
-        print(f'self.url {self.url}')
-        print(f'self.cleaned_path {self.cleaned_path}')
-        
-        cleaned_data = self.minio_client.get_file_content('data', self.cleaned_path)
-        data = pd.read_csv(io.BytesIO(cleaned_data))  
-        
-        reduced_data  = data.drop(columns=['Evaporation','Sunshine','Cloud9am','Cloud3pm'])
-        data_copy = reduced_data.copy()
-        num_data = data_copy.select_dtypes(include='number')
-        print(reduced_data)
-        
-        print('mlflow process starts')
-        mlflow.log_param("param1", 5)
-        mlflow.log_metric("metric1", 0.85)
-        
-        # # Crear un archivo temporal y guardarlo en S3
-        # artifact_path = "/tmp/output.txt"  # Ruta temporal en el contenedor
-        # with open(artifact_path, "w") as f:
-        #     f.write("Hello, MLflow!")
-        
-        # Log de archivo en S3
-        # mlflow.log_artifact(artifact_path, "s3://mlflow/artifacts/output.txt")  # Especifica la ruta en S3
-        print('mlflow process ends')
-
-
-    def create_experiment(self, experiment_name):       
+    def create_experiment(self, experiment_name, **kwargs):       
         if not mlflow.get_experiment_by_name(experiment_name):
             mlflow.create_experiment(name=experiment_name) 
 
         self.experiment = mlflow.get_experiment_by_name(experiment_name)
         print(f'Experiment {experiment_name} created.')
+        
+    def clean_data(self, **kwargs):
+        cleaned_data = self.minio_client.get_file_content('data', self.cleaned_path)
+        data = pd.read_csv(io.BytesIO(cleaned_data))  
+        
+        reduced_data = data.drop(columns=['Evaporation','Sunshine','Cloud9am','Cloud3pm'])
+        
+        # Push reduced_data to XCom
+        task_instance = kwargs['ti']
+        task_instance.xcom_push(key='reduced_data', value=reduced_data.to_json(date_format='iso', orient='split'))
+    
+    def impute_values(self, **kwargs):
+        task_instance = kwargs['ti']
+        
+        # Pull reduced_data from XCom
+        reduced_data_json = task_instance.xcom_pull(task_ids='clean_data', key='reduced_data')
+        reduced_data = pd.read_json(reduced_data_json, orient='split')
+        
+        data_copy = reduced_data.copy()
+        num_data = data_copy.select_dtypes(include='number')
+        print(f'num_data {num_data}')
+        
+        # Here you would continue with your imputation logic
+        # For example:
+        # mice_impt = IterativeImputer(max_iter=70)
+        # mice_vars = mice_impt.fit_transform(num_data)
 
 dag = DAG('model_dag', description='Training model DAG for WeatherAUS dataset',
           schedule_interval='0 12 * * *',
-          start_date=datetime(2022, 1, 1), catchup=False)
+          start_date=days_ago(1), catchup=False)
 
 etl_process = ModelTraining()
-
-clean_data_task = PythonOperator(
-    task_id='clean_data',
-    python_callable=etl_process.clean_data,
-    dag=dag)
 
 create_experiment_task = PythonOperator(
     task_id='create_experiment',
     python_callable=etl_process.create_experiment,
     op_kwargs={'experiment_name': 'experiment_weatherAUS'},
+    provide_context=True,
     dag=dag)
 
-clean_data_task >> create_experiment_task
+clean_data_task = PythonOperator(
+    task_id='clean_data',
+    python_callable=etl_process.clean_data,
+    provide_context=True,
+    dag=dag)
+
+impute_values_task = PythonOperator(
+    task_id='impute_values',
+    python_callable=etl_process.impute_values,
+    provide_context=True,
+    dag=dag)
+
+create_experiment_task >> clean_data_task >> impute_values_task
