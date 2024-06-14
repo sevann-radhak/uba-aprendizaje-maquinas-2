@@ -9,6 +9,18 @@ services:
     ports:
       - "5432:5432"
 
+  postgres-mlflow:
+    image: postgres:13
+    container_name: postgres_mlflow
+    environment:
+      POSTGRES_USER: mlflow
+      POSTGRES_PASSWORD: mlflow
+      POSTGRES_DB: mlflow_db
+    ports:
+      - "5433:5432"
+    networks:
+      - airflow_mlflow_net
+
   webserver:
     image: apache/airflow:2.8.1
     build: 
@@ -91,3 +103,23 @@ services:
       /usr/bin/mc policy download s3/data;
       exit 0;
       '
+
+  mlflow:
+    build:
+      context: .
+      dockerfile: dockerfiles/mlflow/Dockerfile
+    container_name: mlflow
+    depends_on:
+      - postgres-mlflow
+    environment:
+      MLFLOW_TRACKING_URI: postgresql+psycopg2://mlflow:mlflow@postgres-mlflow:5432/mlflow_db
+    ports:
+      - "5000:5000"
+    networks:
+      - airflow_mlflow_net
+    command: mlflow server --backend-store-uri postgresql+psycopg2://mlflow:mlflow@postgres-mlflow:5432/mlflow_db --default-artifact-root /mlflow/artifacts --host 0.0.0.0
+
+
+networks:
+  airflow_mlflow_net:
+    driver: bridge
