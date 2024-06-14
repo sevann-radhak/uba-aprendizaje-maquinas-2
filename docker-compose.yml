@@ -10,6 +10,8 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - airflow_mlflow_net
 
   postgres-mlflow:
     image: postgres:14
@@ -36,6 +38,7 @@ services:
     depends_on:
       - postgres
       - s3
+      - mlflow
     environment:
       - LOAD_EX=n
       - EXECUTOR=Local
@@ -52,8 +55,12 @@ services:
       - AWS_ENDPOINT_URL=http://s3:9000
     volumes:
       - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
     ports:
       - "8080:8080"
+    networks:
+      - airflow_mlflow_net
     command: bash -c "airflow db init && airflow webserver"
     healthcheck:
       test: ["CMD-SHELL", "[ -f /usr/local/airflow/airflow-webserver.pid ]"]
@@ -79,6 +86,8 @@ services:
     volumes:
       - ./dags:/opt/airflow/dags
     image: apache/airflow:2.8.1
+    networks:
+      - airflow_mlflow_net
     command: bash -c "airflow db init && airflow scheduler"
     healthcheck:
       test: ["CMD-SHELL", "[ -f /usr/local/airflow/airflow-scheduler.pid ]"]
@@ -93,12 +102,16 @@ services:
     environment:
       - MINIO_ACCESS_KEY=minio
       - MINIO_SECRET_KEY=minio123
+    networks:
+      - airflow_mlflow_net
     command: server /data
 
   create_s3_buckets:
     image: minio/mc:latest
     depends_on:
       - s3
+    networks:
+      - airflow_mlflow_net
     entrypoint: >
       /bin/sh -c '
       sleep 5;
@@ -117,14 +130,17 @@ services:
     container_name: mlflow
     depends_on:
       - postgres-mlflow
+      - s3
     environment:
+      AWS_ACCESS_KEY_ID: minio
+      AWS_SECRET_ACCESS_KEY: minio123
+      MLFLOW_S3_ENDPOINT_URL: http://s3:9000
       MLFLOW_TRACKING_URI: postgresql+psycopg2://mlflow:mlflow@postgres-mlflow:5432/mlflow_db
     ports:
       - "5000:5000"
     networks:
       - airflow_mlflow_net
-    command: mlflow server --backend-store-uri postgresql+psycopg2://mlflow:mlflow@postgres-mlflow:5432/mlflow_db --default-artifact-root /mlflow/artifacts --host 0.0.0.0
-
+    command: mlflow server --backend-store-uri postgresql+psycopg2://mlflow:mlflow@postgres-mlflow:5432/mlflow_db --default-artifact-root s3://mlflow --host 0.0.0.0
 
 networks:
   airflow_mlflow_net:
@@ -133,3 +149,9 @@ networks:
 volumes:
   postgres_data:
   mlflow_postgres_data:
+  mlflow_artifacts:
+    driver: local
+    driver_opts:
+      type: none
+      device: ./mlflow_artifacts
+      o: bind

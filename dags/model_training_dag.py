@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 import os
 import io
 from MinIOClient import MinioClient
-# import mlflow
+import mlflow
 
 class ModelTraining:
     def __init__(self):
@@ -14,11 +14,15 @@ class ModelTraining:
         self.url = os.getenv('DATA_URL')
         self.raw_path = os.getenv('RAW_PATH')
         self.cleaned_path = os.getenv('CLEANED_PATH')
-        self.minio_client = MinioClient(os.getenv('MINIO_URL'), os.getenv('MINIO_USER'), os.getenv('MINIO_PASSWORD'))
+        self.minio_client = MinioClient(os.getenv('AWS_ENDPOINT_URL'), os.getenv('AWS_ACCESS_KEY_ID'), os.getenv('MINIO_SECRET_KEY'))
+        self.experiment = None
         # mlflow.set_tracking_uri("http://localhost:5000")
+        mlflow.set_tracking_uri("http://mlflow:5000")
 
-
-    def clean_task_1(self):
+    def clean_data(self):
+        print(f'self.url {self.url}')
+        print(f'self.cleaned_path {self.cleaned_path}')
+        
         cleaned_data = self.minio_client.get_file_content('data', self.cleaned_path)
         data = pd.read_csv(io.BytesIO(cleaned_data))  
         
@@ -27,22 +31,26 @@ class ModelTraining:
         num_data = data_copy.select_dtypes(include='number')
         print(reduced_data)
         
-        # print('mlflow process starts')
-        # # Log de parámetros (key-value)
-        # mlflow.log_param("param1", 5)
+        print('mlflow process starts')
+        mlflow.log_param("param1", 5)
+        mlflow.log_metric("metric1", 0.85)
         
-        # # Log de métricas (key-value)
-        # mlflow.log_metric("metric1", 0.85)
-        
-        # # Log de un archivo como artefacto
-        # with open("output.txt", "w") as f:
+        # # Crear un archivo temporal y guardarlo en S3
+        # artifact_path = "/tmp/output.txt"  # Ruta temporal en el contenedor
+        # with open(artifact_path, "w") as f:
         #     f.write("Hello, MLflow!")
-        # mlflow.log_artifact("output.txt")
-        # print('mlflow process ends')
+        
+        # Log de archivo en S3
+        # mlflow.log_artifact(artifact_path, "s3://mlflow/artifacts/output.txt")  # Especifica la ruta en S3
+        print('mlflow process ends')
 
 
-    def clean_task_2(self):
-        pass
+    def create_experiment(self, experiment_name):       
+        if not mlflow.get_experiment_by_name(experiment_name):
+            mlflow.create_experiment(name=experiment_name) 
+
+        self.experiment = mlflow.get_experiment_by_name(experiment_name)
+        print(f'Experiment {experiment_name} created.')
 
 dag = DAG('model_dag', description='Training model DAG for WeatherAUS dataset',
           schedule_interval='0 12 * * *',
@@ -50,14 +58,15 @@ dag = DAG('model_dag', description='Training model DAG for WeatherAUS dataset',
 
 etl_process = ModelTraining()
 
-clean_task_1_task = PythonOperator(
-    task_id='clean_task_1',
-    python_callable=etl_process.clean_task_1,
+clean_data_task = PythonOperator(
+    task_id='clean_data',
+    python_callable=etl_process.clean_data,
     dag=dag)
 
-clean_task_2_task = PythonOperator(
-    task_id='clean_task_2',
-    python_callable=etl_process.clean_task_2,
+create_experiment_task = PythonOperator(
+    task_id='create_experiment',
+    python_callable=etl_process.create_experiment,
+    op_kwargs={'experiment_name': 'experiment_weatherAUS'},
     dag=dag)
 
-clean_task_1_task >> clean_task_2_task
+clean_data_task >> create_experiment_task
