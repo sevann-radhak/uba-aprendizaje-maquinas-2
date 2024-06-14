@@ -1,5 +1,6 @@
 FROM apache/airflow:2.5.0-python3.9
 
+COPY ./.env /home/airflow/.env
 COPY ./dockerfiles/airflow/requirements.txt /requirements.txt
 RUN pip install --no-cache-dir -r /requirements.txt
 

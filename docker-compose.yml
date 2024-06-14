@@ -1,16 +1,18 @@
 version: '3.7'
 services:
   postgres:
-    image: postgres:13
+    image: postgres:14
     environment:
       - POSTGRES_USER=airflow
       - POSTGRES_PASSWORD=airflow
       - POSTGRES_DB=airflow
     ports:
       - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
 
   postgres-mlflow:
-    image: postgres:13
+    image: postgres:14
     container_name: postgres_mlflow
     environment:
       POSTGRES_USER: mlflow
@@ -20,9 +22,13 @@ services:
       - "5433:5432"
     networks:
       - airflow_mlflow_net
+    volumes:
+      - mlflow_postgres_data:/var/lib/postgresql/data 
 
   webserver:
     image: apache/airflow:2.8.1
+    env_file:
+      - ./.env
     build: 
       context: .
       dockerfile: ./dockerfiles/Airflow/Dockerfile
@@ -97,10 +103,10 @@ services:
       /bin/sh -c '
       sleep 5;
       /usr/bin/mc config host add s3 http://s3:9000 minio minio123 --api S3v4;
-      [[ ! -z "`/usr/bin/mc ls s3 | grep challenge`" ]] || /usr/bin/mc mb s3/mlflow;
-      /usr/bin/mc policy download s3/mlflow;
-      [[ ! -z "`/usr/bin/mc ls s3 | grep challenge`" ]] || /usr/bin/mc mb s3/data;
-      /usr/bin/mc policy download s3/data;
+      /usr/bin/mc mb s3/mlflow || true;
+      /usr/bin/mc policy set download s3/mlflow || true;
+      /usr/bin/mc mb s3/data || true;
+      /usr/bin/mc policy set download s3/data || true;
       exit 0;
       '
 
@@ -123,3 +129,7 @@ services:
 networks:
   airflow_mlflow_net:
     driver: bridge
+
+volumes:
+  postgres_data:
+  mlflow_postgres_data:

@@ -14,7 +14,7 @@ class ETLProcess:
         self.url = os.getenv('DATA_URL')
         self.raw_path = os.getenv('RAW_PATH')
         self.cleaned_path = os.getenv('CLEANED_PATH')
-        self.minio_client = MinioClient(os.getenv('MINIO_URL'), os.getenv('MINIO_USER'), os.getenv('MINIO_PASSWORD'))
+        self.minio_client = MinioClient(os.getenv('AWS_ENDPOINT_URL'), os.getenv('AWS_ACCESS_KEY_ID'), os.getenv('MINIO_SECRET_KEY'))
 
     def download_file(self):
         downloader = FileClient()
