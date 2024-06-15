@@ -4,6 +4,8 @@ COPY ./.env /home/airflow/.env
 COPY ./dockerfiles/airflow/requirements.txt /requirements.txt
 RUN pip install --no-cache-dir -r /requirements.txt
 RUN pip install mlflow
+RUN pip install -r /requirements.txt
+RUN pip install fancyimpute
 
 EXPOSE 8080
 

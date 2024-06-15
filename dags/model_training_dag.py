@@ -8,6 +8,7 @@ import io
 from MinIOClient import MinioClient
 import mlflow
 from airflow.utils.dates import days_ago
+from fancyimpute import KNN, IterativeImputer,SoftImpute
 
 class ModelTraining:
     def __init__(self):
@@ -39,18 +40,18 @@ class ModelTraining:
     def impute_values(self, **kwargs):
         task_instance = kwargs['ti']
         
-        # Pull reduced_data from XCom
         reduced_data_json = task_instance.xcom_pull(task_ids='clean_data', key='reduced_data')
         reduced_data = pd.read_json(reduced_data_json, orient='split')
         
         data_copy = reduced_data.copy()
-        num_data = data_copy.select_dtypes(include='number')
-        print(f'num_data {num_data}')
+        num_data = data_copy.select_dtypes(include='number')        
         
-        # Here you would continue with your imputation logic
-        # For example:
-        # mice_impt = IterativeImputer(max_iter=70)
-        # mice_vars = mice_impt.fit_transform(num_data)
+        mice_impt = IterativeImputer(max_iter=70)
+        mice_vars = mice_impt.fit_transform(num_data)
+        mice_data = pd.DataFrame(mice_vars, columns=num_data.columns)
+        data_copy[num_data.columns] = mice_data
+        print("Imputed values using MICE.")
+        print(data_copy.sample(30))
 
 dag = DAG('model_dag', description='Training model DAG for WeatherAUS dataset',
           schedule_interval='0 12 * * *',
