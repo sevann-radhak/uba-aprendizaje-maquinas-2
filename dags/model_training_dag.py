@@ -9,6 +9,8 @@ from MinIOClient import MinioClient
 import mlflow
 from airflow.utils.dates import days_ago
 from fancyimpute import KNN, IterativeImputer,SoftImpute
+from sklearn.model_selection import GridSearchCV, train_test_split
+from sklearn.ensemble import RandomForestClassifier
 
 class ModelTraining:
     def __init__(self):
@@ -33,7 +35,6 @@ class ModelTraining:
         
         reduced_data = data.drop(columns=['Evaporation','Sunshine','Cloud9am','Cloud3pm'])
         
-        # Push reduced_data to XCom
         task_instance = kwargs['ti']
         task_instance.xcom_push(key='reduced_data', value=reduced_data.to_json(date_format='iso', orient='split'))
     
@@ -50,8 +51,52 @@ class ModelTraining:
         mice_vars = mice_impt.fit_transform(num_data)
         mice_data = pd.DataFrame(mice_vars, columns=num_data.columns)
         data_copy[num_data.columns] = mice_data
-        print("Imputed values using MICE.")
-        print(data_copy.sample(30))
+        
+        cat_data = data_copy.select_dtypes(include='object')
+        data_copy[cat_data.columns] = data_copy[cat_data.columns].fillna(data_copy[cat_data.columns].mode().iloc[0])
+        task_instance.xcom_push(key='imputed_data', value=data_copy.to_json(date_format='iso', orient='split'))    
+        
+    def one_hot_encoder(self, **kwargs):
+        task_instance = kwargs['ti']
+        
+        imputed_data_json = task_instance.xcom_pull(task_ids='impute_values', key='imputed_data')
+        imputed_data = pd.read_json(imputed_data_json, orient='split')
+        
+        oh_columns = ["Month", "Location", "WindGustDir", "WindDir9am", "WindDir3pm"]
+        imputed_data['Date'] = pd.to_datetime(imputed_data['Date'])
+        imputed_data['Date'] = imputed_data['Date'].dt.month
+        imputed_data.rename(columns={'Date': 'Month'}, inplace=True)
+
+        imputed_data['RainToday'].replace({'Yes': 1, 'No': 0}, inplace=True)
+        imputed_data['RainTomorrow'].replace({'Yes': 1, 'No': 0}, inplace=True)
+
+        encoded_data = pd.get_dummies(imputed_data, columns=oh_columns)
+        task_instance.xcom_push(key='encoded_data', value=encoded_data.to_json(date_format='iso', orient='split'))    
+
+    def model_training(self , **kwargs):
+        task_instance = kwargs['ti']
+        
+        encoded_data_json = task_instance.xcom_pull(task_ids='one_hot_encoder', key='encoded_data')
+        encoded_data = pd.read_json(encoded_data_json, orient='split')
+        
+        x = encoded_data.drop('RainTomorrow', axis=1)
+        y = encoded_data['RainTomorrow']
+
+        X_train, X_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=65)
+
+        model = RandomForestClassifier()
+
+        grid = {
+            'max_depth':[6,8,10], 
+            'min_samples_split':[2,3,4,5],
+            'min_samples_leaf':[2,3,4,5],
+            'max_features': [2,3]
+            }
+
+        data_grid = GridSearchCV(model, grid, cv=5) 
+        data_grid_results = data_grid.fit(X_train, y_train)
+
+        print(f'Los mejores parámetros son: {data_grid_results.best_params_}')
 
 dag = DAG('model_dag', description='Training model DAG for WeatherAUS dataset',
           schedule_interval='0 12 * * *',
@@ -78,4 +123,16 @@ impute_values_task = PythonOperator(
     provide_context=True,
     dag=dag)
 
-create_experiment_task >> clean_data_task >> impute_values_task
+one_hot_encoder_task = PythonOperator(
+    task_id='one_hot_encoder',
+    python_callable=etl_process.one_hot_encoder,
+    provide_context=True,
+    dag=dag)
+
+model_training_task = PythonOperator(
+    task_id='model_training',
+    python_callable=etl_process.model_training,
+    provide_context=True,
+    dag=dag)
+
+create_experiment_task >> clean_data_task >> impute_values_task >> one_hot_encoder_task >> model_training_task
